@@ -14,20 +14,27 @@ class ServerProtocol(asyncio.Protocol):
         self.server = server
 
     def data_received(self, data: bytes):
-        print(data)
-
-        decoded = data.decode()
-
+        decoded = data.decode("utf-8")
+        print(decoded)
         if self.login is not None:
             self.send_message(decoded)
         else:
             if decoded.startswith("login:"):
-                self.login = decoded.replace("login:", "").replace("\r\n", "")
+                login = decoded.replace("login:", "").replace("\r\n", "")
+                for client in self.server.clients:
+                    if login == client.login:
+                        self.transport.write(
+                            f"Логин {login} занят, попробуйте другой".encode("utf-8")
+                        )
+                        self.transport.close()
+
+                self.login = login
                 self.transport.write(
-                    f"Привет, {self.login}!\n".encode()
+                    f"Привет, {self.login}!\r\n".encode("utf-8")
                 )
+                self.send_history()
             else:
-                self.transport.write("Неправильный логин\n".encode())
+                self.transport.write("Неправильный логин\r\n".encode("utf-8"))
 
     def connection_made(self, transport: transports.Transport):
         self.server.clients.append(self)
@@ -39,18 +46,27 @@ class ServerProtocol(asyncio.Protocol):
         print("Клиент вышел")
 
     def send_message(self, content: str):
-        message = f"{self.login}: {content}\n"
+        message = f"{self.login}: {content}"
 
         for user in self.server.clients:
-            user.transport.write(message.encode())
+            user.transport.write(message.encode("utf-8"))
+
+        if len(self.server.history) == 10:
+            self.server.history.pop(0)
+        self.server.history.append(message)
+
+    def send_history(self):
+        for message in self.server.history:
+            self.transport.write(message.encode("utf-8"))
 
 
 class Server:
     clients: list
+    history: list
 
     def __init__(self):
         self.clients = []
-
+        self.history = []
     def build_protocol(self):
         return ServerProtocol(self)
 
